@@ -4,34 +4,60 @@ import numpy as np
 import json
 import re
 import altair as alt
+import base64
 
 # ----------------------- Page & Theming -----------------------
 st.set_page_config(
-    page_title="💳 Credit Card Fraud Prediction",
+    page_title="💳 HDFC Credit Card Fraud Prediction",
     page_icon="💳",
     layout="wide"
 )
 
+def _img_to_base64(path: str):
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except Exception:
+        return None
+
+# Try to load brand assets if available
+HDFC_LOGO_PATH = "hdfc_logo.png"
+HDFC_BG_PATH = "hdfc_bg.jpg"
+b64_logo = _img_to_base64(HDFC_LOGO_PATH)
+b64_bg = _img_to_base64(HDFC_BG_PATH)
+
+bg_css = f'background-image: url("data:image/jpg;base64,{b64_bg}");' if b64_bg else "background: radial-gradient(1200px 600px at 20% -10%, #e6eefc 0%, transparent 60%), linear-gradient(180deg, #f7f9ff 0%, #ffffff 60%);"
+
 # Minimal CSS polish (cards, header accent, compact table option)
-CUSTOM_CSS = """
+CUSTOM_CSS = f"""
 <style>
 /* App-wide text smoothing */
-html, body, [class*="css"]  { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+html, body, [class*="css"]  {{ -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }}
 
-.header-accent { 
+body {{
+  {bg_css}
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
+}}
+
+.header-accent {{ 
   padding: 14px 18px; border-radius: 14px; color: white; 
-  display: inline-flex; align-items: center; gap: 10px; font-weight: 600;
-}
-.kpi {
+  display: inline-flex; align-items: center; gap: 12px; font-weight: 600;
+  background: #004080;  /* HDFC blue */
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}}
+.header-accent img {{ border-radius: 6px; background: #fff; padding: 4px; }}
+.kpi {{
   border: 1px solid rgba(0,0,0,0.06);
   padding: 14px 16px; border-radius: 16px; background: #fff;
   box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-}
-.kpi .label { font-size: 12px; color: #666; margin-bottom: 6px; }
-.kpi .value { font-size: 22px; font-weight: 700; }
-.small { font-size: 12px; color:#777; }
-hr.soft { border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 12px 0 6px; }
-.footer-note { color:#7a7a7a; font-size:12px; }
+}}
+.kpi .label {{ font-size: 12px; color: #666; margin-bottom: 6px; }}
+.kpi .value {{ font-size: 22px; font-weight: 700; }}
+.small {{ font-size: 12px; color:#777; }}
+hr.soft {{ border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 12px 0 6px; }}
+.footer-note {{ color:#7a7a7a; font-size:12px; }}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -133,7 +159,7 @@ def proba_hist_chart(proba: np.ndarray, bins=30, accent="#97144D"):
 # ----------------------- Sidebar Controls -----------------------
 with st.sidebar:
     st.markdown("### ⚙️ Controls")
-    accent = st.color_picker("Accent color", value="#2C6DF3")
+    accent = st.color_picker("Accent color", value="#004080")  # HDFC blue default
     threshold = st.slider("Decision threshold (≥ = Fraud)", 0.0, 1.0, 0.50, 0.01)
     decimals = st.slider("Probability decimals", 2, 6, 2, 1)
     compact = st.toggle("Compact table", value=True)
@@ -146,13 +172,22 @@ with st.sidebar:
 
 # ----------------------- Header -----------------------
 feature_names, med, mu, sigma, coef, intercept = load_artifacts()
-st.markdown(
-    f'<div class="header-accent" style="background:{accent};">'
-    '💳 Credit Card Fraud Prediction'
-    '</div>',
-    unsafe_allow_html=True
-)
-st.write("A fast, paste-only scoring tool for office demos & reviews. (No sklearn at runtime.)")
+
+if b64_logo:
+    header_html = f"""
+    <div class="header-accent" style="background:{accent};">
+        <img src="data:image/png;base64,{b64_logo}" width="110">
+        <span>💳 HDFC Credit Card Fraud Prediction</span>
+    </div>
+    """
+else:
+    header_html = f"""
+    <div class="header-accent" style="background:{accent};">
+        💳 HDFC Credit Card Fraud Prediction
+    </div>
+    """
+st.markdown(header_html, unsafe_allow_html=True)
+st.write("A secure, branded paste-only scoring tool for internal demos & reviews. (No sklearn at runtime.)")
 
 with st.expander("Required feature order (copy for Excel exports)"):
     st.code(", ".join(feature_names), language="text")
@@ -245,6 +280,6 @@ with st.expander("About this app"):
         "- **Paste-only**: No file uploads or sklearn needed at runtime\n"
         "- **Preprocessing**: median imputation, z-score scaling (using saved stats)\n"
         "- **Model**: logistic regression (coef & intercept loaded from JSON)\n"
-        "- **Safe defaults**: threshold configurable in the sidebar"
+        "- **Threshold**: configurable from the sidebar"
     )
-st.markdown('<div class="footer-note">© Your Team • Demo build for internal review</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer-note">© HDFC Bank • Internal Fraud Detection Demo</div>', unsafe_allow_html=True)
