@@ -274,7 +274,7 @@ if predict_clicked:
         )
 
 # ----------------------- Footer / About -----------------------
-st.markdown("hr", unsafe_allow_html=True)
+st.markdown( unsafe_allow_html=True)
 with st.expander("About this app"):
     st.write(
         "- **Paste-only**: No file uploads or sklearn needed at runtime\n"
