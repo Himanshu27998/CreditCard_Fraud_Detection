@@ -5,9 +5,38 @@ import json
 import re
 import altair as alt
 
-st.set_page_config(page_title="💳 Credit Card Fraud Prediction", page_icon="💳", layout="wide")
+# ----------------------- Page & Theming -----------------------
+st.set_page_config(
+    page_title="💳 Credit Card Fraud Prediction",
+    page_icon="💳",
+    layout="wide"
+)
 
-# ---------- Load artifacts ----------
+# Minimal CSS polish (cards, header accent, compact table option)
+CUSTOM_CSS = """
+<style>
+/* App-wide text smoothing */
+html, body, [class*="css"]  { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+.header-accent { 
+  padding: 14px 18px; border-radius: 14px; color: white; 
+  display: inline-flex; align-items: center; gap: 10px; font-weight: 600;
+}
+.kpi {
+  border: 1px solid rgba(0,0,0,0.06);
+  padding: 14px 16px; border-radius: 16px; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.kpi .label { font-size: 12px; color: #666; margin-bottom: 6px; }
+.kpi .value { font-size: 22px; font-weight: 700; }
+.small { font-size: 12px; color:#777; }
+hr.soft { border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 12px 0 6px; }
+.footer-note { color:#7a7a7a; font-size:12px; }
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# ----------------------- Artifacts -----------------------
 @st.cache_resource
 def load_artifacts():
     with open("feature_names.json", "r") as f:
@@ -16,6 +45,7 @@ def load_artifacts():
         pre = json.load(f)
     with open("model_params.json", "r") as f:
         model = json.load(f)
+
     med = np.array(pre["medians"], dtype=float)
     mu = np.array(pre["means"], dtype=float)
     sigma = np.array(pre["stds"], dtype=float)
@@ -23,7 +53,6 @@ def load_artifacts():
     intercept = float(model["intercept"])
     return feature_names, med, mu, sigma, coef, intercept
 
-# ---------- Parse pasted text ----------
 def parse_pasted_text(text: str, expected_cols):
     lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
     rows = []
@@ -47,7 +76,6 @@ def parse_pasted_text(text: str, expected_cols):
     data = [[float(x) for x in r] for r in rows]
     return pd.DataFrame(data, columns=expected_cols)
 
-# ---------- Preprocess ----------
 def preprocess_numpy(df, feature_names, med, mu, sigma):
     X = df[feature_names].to_numpy(dtype=float)
     X[np.isinf(X)] = np.nan
@@ -58,16 +86,13 @@ def preprocess_numpy(df, feature_names, med, mu, sigma):
     X_scaled = (X - mu) / sigma_safe
     return X_scaled
 
-# ---------- Logistic probability ----------
 def predict_proba(X_scaled, coef, intercept):
     logits = X_scaled @ coef + intercept
     return 1.0 / (1.0 + np.exp(-logits))
 
-# ---------- Chart: simple Fraud vs Not Fraud counts ----------
-def fraud_vs_not_chart(preds: np.ndarray):
+def fraud_vs_not_chart(preds: np.ndarray, accent="#97144D"):
     labels = np.where(preds == 1, "🚨 Fraud", "✅ Not Fraud")
     counts = pd.Series(labels).value_counts().rename_axis("Prediction").reset_index(name="Count")
-    # ensure both categories always appear (even if zero)
     wanted = pd.DataFrame({"Prediction": ["🚨 Fraud", "✅ Not Fraud"]})
     counts = wanted.merge(counts, on="Prediction", how="left").fillna({"Count": 0})
     counts["Count"] = counts["Count"].astype(int)
@@ -80,7 +105,7 @@ def fraud_vs_not_chart(preds: np.ndarray):
             y=alt.Y("Count:Q", title="Number of Records"),
             color=alt.Color(
                 "Prediction:N",
-                scale=alt.Scale(domain=["🚨 Fraud", "✅ Not Fraud"], range=["#d62728", "#2ca02c"]),
+                scale=alt.Scale(domain=["🚨 Fraud", "✅ Not Fraud"], range=["#d62728", accent]),
                 legend=None
             ),
             tooltip=["Prediction:N", "Count:Q"]
@@ -89,63 +114,137 @@ def fraud_vs_not_chart(preds: np.ndarray):
     )
     return chart
 
-# ---------- UI ----------
-def main():
-    st.title("💳 Credit Card Fraud Prediction")
-    st.write("Paste values for the features below (same order). No file upload or CSV needed.")
+def proba_hist_chart(proba: np.ndarray, bins=30, accent="#97144D"):
+    dfh = pd.DataFrame({"probability": proba})
+    chart = (
+        alt.Chart(dfh)
+        .transform_bin("bin", "probability", bin=alt.Bin(maxbins=bins))
+        .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+        .encode(
+            x=alt.X("bin:Q", title="Fraud Probability (binned)"),
+            y=alt.Y("count():Q", title="Records"),
+            tooltip=[alt.Tooltip("count():Q", title="Count")]
+        )
+        .properties(height=300)
+        .configure_mark(color=accent)
+    )
+    return chart
 
-    feature_names, med, mu, sigma, coef, intercept = load_artifacts()
-
-    with st.expander("Required feature order"):
-        st.code(", ".join(feature_names), language="text")
-
-    example = ",".join(["0"] * len(feature_names))
-    text = st.text_area(
-        "Paste rows (one per line). Use commas, tabs, or spaces between numbers.",
-        value=example,
-        height=140
+# ----------------------- Sidebar Controls -----------------------
+with st.sidebar:
+    st.markdown("### ⚙️ Controls")
+    accent = st.color_picker("Accent color", value="#2C6DF3")
+    threshold = st.slider("Decision threshold (≥ = Fraud)", 0.0, 1.0, 0.50, 0.01)
+    decimals = st.slider("Probability decimals", 2, 6, 2, 1)
+    compact = st.toggle("Compact table", value=True)
+    st.markdown("---")
+    st.markdown("### ℹ️ Help")
+    st.caption(
+        "Paste values for the required features in the main panel. "
+        "Use commas / tabs / spaces. Click **Predict** to score."
     )
 
-    if st.button("Predict"):
-        try:
-            df = parse_pasted_text(text, feature_names)
-            threshold = 0.50  # fixed internal threshold
+# ----------------------- Header -----------------------
+feature_names, med, mu, sigma, coef, intercept = load_artifacts()
+st.markdown(
+    f'<div class="header-accent" style="background:{accent};">'
+    '💳 Credit Card Fraud Prediction'
+    '</div>',
+    unsafe_allow_html=True
+)
+st.write("A fast, paste-only scoring tool for office demos & reviews. (No sklearn at runtime.)")
 
-            X_scaled = preprocess_numpy(df, feature_names, med, mu, sigma)
-            proba = predict_proba(X_scaled, coef, intercept)
-            preds = (proba >= threshold).astype(int)
+with st.expander("Required feature order (copy for Excel exports)"):
+    st.code(", ".join(feature_names), language="text")
 
-            out = df.copy()
-            out["fraud_probability"] = proba
-            out["prediction"] = preds
+# ----------------------- Input -----------------------
+example = ",".join(["0"] * len(feature_names))
+text = st.text_area(
+    "Paste rows (one per line). Commas, tabs, or spaces between numbers are accepted.",
+    value=example,
+    height=140
+)
 
-            # Results table
-            st.subheader("Results")
-            st.dataframe(
-                out,
-                use_container_width=True,
-                column_config={
-                    "fraud_probability": st.column_config.ProgressColumn(
-                        "Fraud Probability",
-                        format="%.2f",
-                        min_value=0.0,
-                        max_value=1.0,
-                    ),
-                    "prediction": st.column_config.NumberColumn(
-                        "Prediction (1=Fraud, 0=Not Fraud)"
-                    ),
-                },
-                hide_index=True,
-            )
+colL, colR = st.columns([1,1])
+with colL:
+    predict_clicked = st.button("🔮 Predict", type="primary")
+with colR:
+    template = ", ".join(["0"] * len(feature_names))
+    st.download_button(
+        "⬇️ Download input template (.txt)",
+        data=template,
+        file_name="fraud_input_template.txt",
+        mime="text/plain"
+    )
 
-            # Single visualization: Fraud vs Not Fraud
-            st.altair_chart(fraud_vs_not_chart(preds), use_container_width=True)
+# ----------------------- Predict Flow -----------------------
+if predict_clicked:
+    try:
+        df = parse_pasted_text(text, feature_names)
 
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.info("Make sure each line has exactly the required number of values in the correct order.")
+        X_scaled = preprocess_numpy(df, feature_names, med, mu, sigma)
+        proba = predict_proba(X_scaled, coef, intercept)
+        preds = (proba >= threshold).astype(int)
 
-    st.caption("Tip: Copy cells for V1..V28 and Amount from Excel (no headers) and paste here.")
+        out = df.copy()
+        out["fraud_probability"] = np.round(proba, decimals)
+        out["prediction"] = preds.astype(int)
 
-if __name__ == "__main__":
-    main()
+        # KPIs
+        tot = len(out)
+        frauds = int((out["prediction"] == 1).sum())
+        avgp = float(out["fraud_probability"].mean()) if tot else 0.0
+
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            st.markdown('<div class="kpi"><div class="label">Records Scored</div>'
+                        f'<div class="value">{tot:,}</div></div>', unsafe_allow_html=True)
+        with k2:
+            st.markdown('<div class="kpi"><div class="label">Predicted Fraud</div>'
+                        f'<div class="value">{frauds:,}</div></div>', unsafe_allow_html=True)
+        with k3:
+            st.markdown('<div class="kpi"><div class="label">Avg Fraud Probability</div>'
+                        f'<div class="value">{avgp:.{decimals}f}</div></div>', unsafe_allow_html=True)
+
+        st.markdown("#### Results")
+        st.dataframe(
+            out if not compact else out.style.set_properties(**{"font-size": "12px"}),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Charts row
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Predictions Breakdown**")
+            st.altair_chart(fraud_vs_not_chart(preds, accent), use_container_width=True)
+        with c2:
+            st.markdown("**Fraud Probability Distribution**")
+            st.altair_chart(proba_hist_chart(proba, bins=30, accent=accent), use_container_width=True)
+
+        # Download
+        csv = out.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "💾 Download scored results (CSV)",
+            data=csv,
+            file_name="fraud_scored_results.csv",
+            mime="text/csv"
+        )
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+        st.info(
+            "Tip: Ensure each row has exactly the required number of values "
+            "and in the same order as shown above."
+        )
+
+# ----------------------- Footer / About -----------------------
+st.markdown("hr", unsafe_allow_html=True)
+with st.expander("About this app"):
+    st.write(
+        "- **Paste-only**: No file uploads or sklearn needed at runtime\n"
+        "- **Preprocessing**: median imputation, z-score scaling (using saved stats)\n"
+        "- **Model**: logistic regression (coef & intercept loaded from JSON)\n"
+        "- **Safe defaults**: threshold configurable in the sidebar"
+    )
+st.markdown('<div class="footer-note">© Your Team • Demo build for internal review</div>', unsafe_allow_html=True)
