@@ -23,8 +23,8 @@ def _img_to_base64(path: str):
 # Try to load brand assets if available
 HDFC_LOGO_PATH = "hdfc_logo.png"
 HDFC_BG_PATH = "hdfc_bg.jpg"
-b64_logo = _img_to_base64(HDFC_LOGO_PATH)
-b64_bg = _img_to_base64(HDFC_BG_PATH)
+b64_logo = _img_to_base64("C:\Users\Admin\Downloads\hdfc_logo.png")
+b64_bg = _img_to_base64("C:\Users\Admin\Downloads\hdfc_bg.jpg")
 
 bg_css = f'background-image: url("data:image/jpg;base64,{b64_bg}");' if b64_bg else "background: radial-gradient(1200px 600px at 20% -10%, #e6eefc 0%, transparent 60%), linear-gradient(180deg, #f7f9ff 0%, #ffffff 60%);"
 
