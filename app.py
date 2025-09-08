@@ -1,68 +1,92 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import json
-import re
-import altair as alt
-import base64
+import json, re, altair as alt
+from datetime import datetime
 
-# ----------------------- Page & Theming -----------------------
-st.set_page_config(
-    page_title="💳 HDFC Credit Card Fraud Prediction",
-    page_icon="💳",
-    layout="wide"
-)
+st.set_page_config(page_title="💳 Credit Card Fraud Prediction", page_icon="💳", layout="wide")
 
-def _img_to_base64(path: str):
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-    except Exception:
-        return None
+# ===== Presentation settings =====
+ACCENT = "#004080"   # header accent (HDFC blue style)
+THRESHOLD = 0.50
+DECIMALS = 2
 
-# Try to load brand assets if available
-HDFC_LOGO_PATH = r"C:\Users\Admin\Downloads\hdfc_logo.png"
-HDFC_BG_PATH = r"C:\Users\Admin\Downloads\hdfc_bg.jpg"
-b64_logo = _img_to_base64(r"C:\Users\Admin\Downloads\hdfc_logo.png")
-b64_bg = _img_to_base64(r"C:\Users\Admin\Downloads\hdfc_bg.jpg")
+# ===== Global CSS =====
+def inject_css():
+    css = f"""
+    <style>
+      .stApp {{
+        background: linear-gradient(135deg, #0b1220 0%, #1c2233 100%);
+        color: #f5f5f5;
+      }}
 
-bg_css = f'background-image: url("data:image/jpg;base64,{b64_bg}");' if b64_bg else "background: radial-gradient(1200px 600px at 20% -10%, #e6eefc 0%, transparent 60%), linear-gradient(180deg, #f7f9ff 0%, #ffffff 60%);"
+      .block-container {{
+        background: rgba(245,245,245,0.97);
+        border-radius: 18px;
+        padding: 28px 28px 36px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        max-width: 1200px;
+      }}
 
-# Minimal CSS polish (cards, header accent, compact table option)
-CUSTOM_CSS = f"""
-<style>
-/* App-wide text smoothing */
-html, body, [class*="css"]  {{ -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }}
+      .brandbar {{
+        display:flex; align-items:center; justify-content:center;
+        background: linear-gradient(90deg, #003366 0%, #004080 100%);
+        color:white !important;
+        border-radius:14px;
+        padding:18px 24px;
+        margin-bottom:18px;
+        font-family: 'Segoe UI', sans-serif;
+        font-weight:800;
+        font-size:26px;
+        letter-spacing:0.5px;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+        box-shadow:0 4px 15px rgba(0,0,0,0.4);
+      }}
 
-body {{
-  {bg_css}
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-  background-size: cover;
-}}
+      h4, h5, .stMarkdown h4, .stMarkdown h5 {{
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 22px !important;
+        font-weight: 700 !important;
+        color: {ACCENT} !important;
+      }}
 
-.header-accent {{ 
-  padding: 14px 18px; border-radius: 14px; color: white; 
-  display: inline-flex; align-items: center; gap: 12px; font-weight: 600;
-  background: #004080;  /* HDFC blue */
-  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-}}
-.header-accent img {{ border-radius: 6px; background: #fff; padding: 4px; }}
-.kpi {{
-  border: 1px solid rgba(0,0,0,0.06);
-  padding: 14px 16px; border-radius: 16px; background: #fff;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-}}
-.kpi .label {{ font-size: 12px; color: #666; margin-bottom: 6px; }}
-.kpi .value {{ font-size: 22px; font-weight: 700; }}
-.small {{ font-size: 12px; color:#777; }}
-hr.soft {{ border: none; border-top: 1px solid rgba(0,0,0,0.06); margin: 12px 0 6px; }}
-.footer-note {{ color:#7a7a7a; font-size:12px; }}
-</style>
-"""
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+      thead tr th {{
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        color: #000 !important;
+        background-color: #f0f0f0 !important;
+      }}
+      tbody tr td {{
+        font-size: 13px !important;
+        color: #111 !important;
+      }}
 
-# ----------------------- Artifacts -----------------------
+      .badge {{
+        font-size: 13px; font-weight: 700; padding: 2px 8px;
+        border-radius: 8px; color:#fff;
+      }}
+      .badge.low  {{ background:#2ca02c; }}
+      .badge.med  {{ background:#ff7f0e; }}
+      .badge.high {{ background:#d62728; }}
+
+      .kpi {{
+        border-radius:16px;
+        padding:14px 16px;
+        box-shadow:0 2px 10px rgba(0,0,0,0.15);
+        color:#000; background:#ffffff;
+      }}
+      .kpi .label {{ font-size:12px; color:#555; margin-bottom:6px; }}
+      .kpi .value {{ font-size:22px; font-weight:700; }}
+
+      .kpi-ok    {{ background:#2ca02c !important; color:#fff !important; }}
+      .kpi-alert {{ background:#d62728 !important; color:#fff !important; }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+inject_css()
+
+# ===== Load artifacts =====
 @st.cache_resource
 def load_artifacts():
     with open("feature_names.json", "r") as f:
@@ -71,7 +95,6 @@ def load_artifacts():
         pre = json.load(f)
     with open("model_params.json", "r") as f:
         model = json.load(f)
-
     med = np.array(pre["medians"], dtype=float)
     mu = np.array(pre["means"], dtype=float)
     sigma = np.array(pre["stds"], dtype=float)
@@ -79,6 +102,7 @@ def load_artifacts():
     intercept = float(model["intercept"])
     return feature_names, med, mu, sigma, coef, intercept
 
+# ===== Functions =====
 def parse_pasted_text(text: str, expected_cols):
     lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
     rows = []
@@ -92,15 +116,9 @@ def parse_pasted_text(text: str, expected_cols):
         rows.append(parts)
     if not rows:
         raise ValueError("No values detected. Paste at least one row.")
-    n_expected = len(expected_cols)
-    for i, r in enumerate(rows, start=1):
-        if len(r) != n_expected:
-            raise ValueError(
-                f"Row {i} has {len(r)} values, expected {n_expected}.\n"
-                f"Expected order: {', '.join(expected_cols)}"
-            )
-    data = [[float(x) for x in r] for r in rows]
-    return pd.DataFrame(data, columns=expected_cols)
+    if any(len(r) != len(expected_cols) for r in rows):
+        raise ValueError(f"Each row must have {len(expected_cols)} values in order: {', '.join(expected_cols)}")
+    return pd.DataFrame([[float(x) for x in r] for r in rows], columns=expected_cols)
 
 def preprocess_numpy(df, feature_names, med, mu, sigma):
     X = df[feature_names].to_numpy(dtype=float)
@@ -109,176 +127,115 @@ def preprocess_numpy(df, feature_names, med, mu, sigma):
     if nan_mask.any():
         X[nan_mask] = np.take(med, np.where(nan_mask)[1])
     sigma_safe = np.where(sigma == 0, 1.0, sigma)
-    X_scaled = (X - mu) / sigma_safe
-    return X_scaled
+    return (X - mu) / sigma_safe
 
 def predict_proba(X_scaled, coef, intercept):
     logits = X_scaled @ coef + intercept
     return 1.0 / (1.0 + np.exp(-logits))
 
-def fraud_vs_not_chart(preds: np.ndarray, accent="#97144D"):
+def risk_tier(p):
+    if p >= 0.80: return "High", "badge high", "Auto-block & verify"
+    elif p >= 0.50: return "Medium", "badge med", "Step-up auth; monitor"
+    else: return "Low", "badge low", "Allow & monitor"
+
+def fraud_vs_not_chart(preds: np.ndarray):
     labels = np.where(preds == 1, "🚨 Fraud", "✅ Not Fraud")
     counts = pd.Series(labels).value_counts().rename_axis("Prediction").reset_index(name="Count")
-    wanted = pd.DataFrame({"Prediction": ["🚨 Fraud", "✅ Not Fraud"]})
-    counts = wanted.merge(counts, on="Prediction", how="left").fillna({"Count": 0})
+    wanted = pd.DataFrame({"Prediction": ["🚨 Fraud","✅ Not Fraud"]})
+    counts = wanted.merge(counts, on="Prediction", how="left").fillna({"Count":0})
     counts["Count"] = counts["Count"].astype(int)
 
-    chart = (
-        alt.Chart(counts)
+    return (
+        alt.Chart(counts, background="transparent")
         .mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8)
         .encode(
-            x=alt.X("Prediction:N", title=""),
-            y=alt.Y("Count:Q", title="Number of Records"),
+            x=alt.X(
+                "Prediction:N",
+                title="",
+                axis=alt.Axis(labelFontSize=14, labelFontWeight="bold")
+            ),
+            y=alt.Y("Count:Q", title="Records"),
             color=alt.Color(
                 "Prediction:N",
-                scale=alt.Scale(domain=["🚨 Fraud", "✅ Not Fraud"], range=["#d62728", accent]),
+                scale=alt.Scale(
+                    domain=["🚨 Fraud", "✅ Not Fraud"],
+                    range=["#d62728", "#2ca02c"]  # red for fraud, green for not fraud
+                ),
                 legend=None
             ),
-            tooltip=["Prediction:N", "Count:Q"]
+            tooltip=["Prediction:N","Count:Q"]
         )
         .properties(height=300)
     )
-    return chart
 
-def proba_hist_chart(proba: np.ndarray, bins=30, accent="#97144D"):
-    dfh = pd.DataFrame({"probability": proba})
-    chart = (
-        alt.Chart(dfh)
-        .transform_bin("bin", "probability", bin=alt.Bin(maxbins=bins))
-        .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
-        .encode(
-            x=alt.X("bin:Q", title="Fraud Probability (binned)"),
-            y=alt.Y("count():Q", title="Records"),
-            tooltip=[alt.Tooltip("count():Q", title="Count")]
-        )
-        .properties(height=300)
-        .configure_mark(color=accent)
-    )
-    return chart
+# ===== UI =====
+st.markdown(f"<div class='brandbar'>💳 HDFC Credit Card Fraud Prediction</div>", unsafe_allow_html=True)
 
-# ----------------------- Sidebar Controls -----------------------
-with st.sidebar:
-    st.markdown("### ⚙️ Controls")
-    accent = st.color_picker("Accent color", value="#004080")  # HDFC blue default
-    threshold = st.slider("Decision threshold (≥ = Fraud)", 0.0, 1.0, 0.50, 0.01)
-    decimals = st.slider("Probability decimals", 2, 6, 2, 1)
-    compact = st.toggle("Compact table", value=True)
-    st.markdown("---")
-    st.markdown("### ℹ️ Help")
-    st.caption(
-        "Paste values for the required features in the main panel. "
-        "Use commas / tabs / spaces. Click **Predict** to score."
-    )
-
-# ----------------------- Header -----------------------
 feature_names, med, mu, sigma, coef, intercept = load_artifacts()
 
-if b64_logo:
-    header_html = f"""
-    <div class="header-accent" style="background:{accent};">
-        <img src="data:image/png;base64,{b64_logo}" width="110">
-        <span>💳 HDFC Credit Card Fraud Prediction</span>
-    </div>
-    """
-else:
-    header_html = f"""
-    <div class="header-accent" style="background:{accent};">
-        💳 HDFC Credit Card Fraud Prediction
-    </div>
-    """
-st.markdown(header_html, unsafe_allow_html=True)
-st.write("A secure, branded paste-only scoring tool for internal demos & reviews. (No sklearn at runtime.)")
+# ===== Feature order =====
+st.markdown("<h4 style='font-family:Segoe UI; font-size:20px; font-weight:600; color:#004080;'>Required Feature Order</h4>", unsafe_allow_html=True)
+st.code(", ".join(feature_names), language="text")
 
-with st.expander("Required feature order (copy for Excel exports)"):
-    st.code(", ".join(feature_names), language="text")
-
-# ----------------------- Input -----------------------
+# ===== Input area =====
 example = ",".join(["0"] * len(feature_names))
 text = st.text_area(
-    "Paste rows (one per line). Commas, tabs, or spaces between numbers are accepted.",
+    "",
     value=example,
-    height=140
+    height=140,
+    placeholder="Paste feature rows here (comma/tab/space separated, one row per line)…"
 )
 
-colL, colR = st.columns([1,1])
-with colL:
+# Buttons
+c1, c2 = st.columns([1,1])
+with c1:
     predict_clicked = st.button("🔮 Predict", type="primary")
-with colR:
-    template = ", ".join(["0"] * len(feature_names))
-    st.download_button(
-        "⬇️ Download input template (.txt)",
-        data=template,
-        file_name="fraud_input_template.txt",
-        mime="text/plain"
-    )
+with c2:
+    st.download_button("⬇ Download input template", data=example, file_name="fraud_input_template.txt", mime="text/plain")
 
-# ----------------------- Predict Flow -----------------------
+# ===== Predict flow =====
 if predict_clicked:
     try:
         df = parse_pasted_text(text, feature_names)
-
         X_scaled = preprocess_numpy(df, feature_names, med, mu, sigma)
         proba = predict_proba(X_scaled, coef, intercept)
-        preds = (proba >= threshold).astype(int)
+        preds = (proba >= THRESHOLD).astype(int)
 
         out = df.copy()
-        out["fraud_probability"] = np.round(proba, decimals)
+        out["fraud_probability"] = np.round(proba, DECIMALS)
         out["prediction"] = preds.astype(int)
+        tiers = [risk_tier(p) for p in proba]
+        out["risk_tier"]   = [t[0] for t in tiers]
+        out["next_action"] = [t[2] for t in tiers]
 
         # KPIs
         tot = len(out)
         frauds = int((out["prediction"] == 1).sum())
         avgp = float(out["fraud_probability"].mean()) if tot else 0.0
 
-        k1, k2, k3 = st.columns(3)
+        k1, k2, k3, k4 = st.columns(4)
         with k1:
-            st.markdown('<div class="kpi"><div class="label">Records Scored</div>'
-                        f'<div class="value">{tot:,}</div></div>', unsafe_allow_html=True)
+            st.markdown(f"<div class='kpi'><div class='label'>Records</div><div class='value'>{tot:,}</div></div>", unsafe_allow_html=True)
         with k2:
-            st.markdown('<div class="kpi"><div class="label">Predicted Fraud</div>'
-                        f'<div class="value">{frauds:,}</div></div>', unsafe_allow_html=True)
+            fraud_class = "kpi-alert" if frauds > 0 else "kpi-ok"
+            st.markdown(f"<div class='kpi {fraud_class}'><div class='label'>Frauds Flagged</div><div class='value'>{frauds:,}</div></div>", unsafe_allow_html=True)
         with k3:
-            st.markdown('<div class="kpi"><div class="label">Avg Fraud Probability</div>'
-                        f'<div class="value">{avgp:.{decimals}f}</div></div>', unsafe_allow_html=True)
+            st.markdown(f"<div class='kpi'><div class='label'>Avg Probability</div><div class='value'>{avgp:.{DECIMALS}f}</div></div>", unsafe_allow_html=True)
+        with k4:
+            st.markdown(f"<div class='kpi'><div class='label'>Decision Time</div><div class='value'>{datetime.now().strftime('%H:%M:%S')}</div></div>", unsafe_allow_html=True)
 
+        # Results
         st.markdown("#### Results")
-        st.dataframe(
-            out if not compact else out.style.set_properties(**{"font-size": "12px"}),
-            use_container_width=True,
-            hide_index=True
-        )
+        show = out.copy()
+        show["risk_badge"] = [f"<span class='{risk_tier(p)[1]}'>{risk_tier(p)[0]}</span>" for p in proba]
+        st.write(show[["fraud_probability","prediction","risk_badge","next_action"]].to_html(escape=False, index=False), unsafe_allow_html=True)
 
-        # Charts row
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Predictions Breakdown**")
-            st.altair_chart(fraud_vs_not_chart(preds, accent), use_container_width=True)
-        with c2:
-            st.markdown("**Fraud Probability Distribution**")
-            st.altair_chart(proba_hist_chart(proba, bins=30, accent=accent), use_container_width=True)
+        # Predictions Breakdown chart
+        st.markdown("#### Predictions Breakdown")
+        st.altair_chart(fraud_vs_not_chart(preds), use_container_width=True)
 
-        # Download
-        csv = out.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "💾 Download scored results (CSV)",
-            data=csv,
-            file_name="fraud_scored_results.csv",
-            mime="text/csv"
-        )
+        # Export
+        st.download_button("💾 Download results (CSV)", data=out.to_csv(index=False).encode("utf-8"), file_name="fraud_results.csv", mime="text/csv")
 
     except Exception as e:
         st.error(f"Error: {e}")
-        st.info(
-            "Tip: Ensure each row has exactly the required number of values "
-            "and in the same order as shown above."
-        )
-
-# ----------------------- Footer / About -----------------------
-with st.expander("About this app"):
-    st.write(
-        "- **Paste-only**: No file uploads or sklearn needed at runtime\n"
-        "- **Preprocessing**: median imputation, z-score scaling (using saved stats)\n"
-        "- **Model**: logistic regression (coef & intercept loaded from JSON)\n"
-        "- **Threshold**: configurable from the sidebar"
-    )
-st.markdown('<div class="footer-note">© HDFC Bank • Internal Fraud Detection Demo</div>', unsafe_allow_html=True)
