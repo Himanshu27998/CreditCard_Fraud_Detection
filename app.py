@@ -21,8 +21,8 @@ def _img_to_base64(path: str):
         return None
 
 # Try to load brand assets if available
-HDFC_LOGO_PATH = "hdfc_logo.png"
-HDFC_BG_PATH = "hdfc_bg.jpg"
+HDFC_LOGO_PATH = "C:\Users\Admin\Downloads\hdfc_logo.png"
+HDFC_BG_PATH = "C:\Users\Admin\Downloads\hdfc_bg.jpg"
 b64_logo = _img_to_base64(r"C:\Users\Admin\Downloads\hdfc_logo.png")
 b64_bg = _img_to_base64(r"C:\Users\Admin\Downloads\hdfc_bg.jpg")
 
